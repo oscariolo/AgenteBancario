@@ -60,33 +60,38 @@ def dibujar_ventanillas():
     cell_width = 100
     cell_height = 100
     margin = 20
+    square_size = 20
+    total_width = NUM_VENTANILLAS * cell_width + (NUM_VENTANILLAS - 1) * margin  # new computation
+    offset_x = (WIDTH - total_width) // 2                                # new computation
     for idx, v in enumerate(ventanillas):
-        x = 100 + idx * (cell_width + margin)
+        x = offset_x + idx * (cell_width + margin)                       # updated: centered x
         y = 50
-        # Ventanilla base
         color = RED if v['ocupado'] else GREEN
         pygame.draw.rect(screen, color, (x, y, cell_width, cell_height))
-        # Si la ventanilla está atendiendo a un cliente, dibujar su cuadrado
         if v['ocupado'] and v['cliente']:
-            # Dibujar cuadrado (tamaño menor) centrado en la ventanilla
-            square_size = 20
-            square_x = x + (cell_width - square_size) // 2
-            square_y = y + (cell_height - square_size) // 2
+            if v.get('animating', False):
+                sp = v['start_pos']
+                tp = v['target_pos']
+                progress = v['anim_progress']
+                square_x = sp[0] + (tp[0] - sp[0]) * progress
+                square_y = sp[1] + (tp[1] - sp[1]) * progress
+            else:
+                square_x = x + (cell_width - square_size) // 2
+                square_y = y + (cell_height - square_size) // 2
             pygame.draw.rect(screen, v['cliente'].color, (square_x, square_y, square_size, square_size))
-            # Renderizar el id del cliente (opcional, en centro de cuadrado)
             text = font.render(str(v['cliente'].id), True, BLACK)
-            text_rect = text.get_rect(center=(square_x + square_size//2, square_y + square_size//2))
+            text_rect = text.get_rect(center=(square_x + square_size // 2, square_y + square_size // 2))
             screen.blit(text, text_rect)
 
 def dibujar_fila():
     # Dibuja la fila de clientes como columna centrada debajo de ventanillas
     square_size = 20
     spacing = 5
+    # Compute total height for the queued clients to center vertically
+    total_height = len(fila) * square_size + (len(fila) - 1) * spacing if fila else 0
+    y = (HEIGHT - total_height) // 2 if total_height else 50 + 100 + 20
     # Calcular posición x centrada
     x = WIDTH // 2 - square_size // 2
-    # Posición y inicia justo debajo de las ventanillas (y + cell_height + margin)
-    start_y = 50 + 100 + 20
-    y = start_y
     for cliente in fila:
         pygame.draw.rect(screen, cliente.color, (x, y, square_size, square_size))
         # Renderizar el id del cliente (opcional, en centro de cuadrado)
@@ -103,33 +108,71 @@ def asignar_cliente_a_ventanilla():
         return
 
     for i in libres:
-        if not fila:  # Verificar si no hay clientes en espera
+        if not fila:
             break
-        # Recalcular el índice del cliente especial en cada iteración
+        # Pick special client if exists; capture its queue index
         especial_idx = next((idx for idx, c in enumerate(fila) if c.especial), None)
         if especial_idx is not None:
             cliente = fila[especial_idx]
+            queue_index = especial_idx
             del fila[especial_idx]
         else:
-            cliente = fila.popleft()
+            cliente = fila[0]
+            queue_index = 0
+            fila.popleft()
 
-        ventanillas[i]['ocupado'] = True
-        ventanillas[i]['cliente'] = cliente
-        ventanillas[i]['tiempo_restante'] = random.randint(3, 7) * FPS  # Tiempo aleatorio entre 3-7 segundos
+        # Compute start position from queue (using same square size and spacing as dibujar_fila)
+        square_size = 20
+        spacing = 5
+        start_y = 50 + 100 + 20  # original base y for queue drawing
+        start_pos = (WIDTH // 2 - square_size // 2, start_y + queue_index * (square_size + spacing))
+        
+        cell_width = 100
+        cell_height = 100
+        margin = 20
+        total_width = NUM_VENTANILLAS * cell_width + (NUM_VENTANILLAS - 1) * margin  # new computation
+        offset_x = (WIDTH - total_width) // 2                                # new computation
+        x_cell = offset_x + i * (cell_width + margin)                         # updated: centered x_cell
+        y_cell = 50
+        target_pos = (x_cell + (cell_width - square_size) // 2, y_cell + (cell_height - square_size) // 2)
+        
+        service_time = random.randint(3, 7) * FPS
+        ventanillas[i] = {
+            'ocupado': True,
+            'cliente': cliente,
+            'tiempo_restante': service_time,
+            'animating': True,
+            'anim_progress': 0.0,
+            'start_pos': start_pos,
+            'target_pos': target_pos
+        }
+        # ...existing code...
 
 # Actualizar ventanillas
 def actualizar_ventanillas():
     for v in ventanillas:
         if v['ocupado']:
-            v['tiempo_restante'] -= 1
-            if v['tiempo_restante'] <= 0:
-                v['ocupado'] = False
-                v['cliente'] = None
+            # Update animation progress first if animation is active
+            if v.get('animating', False):
+                v['anim_progress'] += 1 / (0.5 * FPS)
+                if v['anim_progress'] >= 1:
+                    v['anim_progress'] = 1
+                    v['animating'] = False
+            else:
+                v['tiempo_restante'] -= 1
+                if v['tiempo_restante'] <= 0:
+                    v['ocupado'] = False
+                    v['cliente'] = None
+                    # Clear any animation fields
+                    v.pop('animating', None)
+                    v.pop('anim_progress', None)
+                    v.pop('start_pos', None)
+                    v.pop('target_pos', None)
 
 # Main loop
 def main():
     spawn_timer = 0
-    assignment_timer = random.randint(FPS, FPS * 3)  # random delay for attending (1-3 seconds)
+    assignment_timer = random.randint(FPS, FPS * 3)
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -140,7 +183,7 @@ def main():
         spawn_timer += 1
         assignment_timer -= 1
 
-        if spawn_timer > FPS * 1:  # New client every 1 second
+        if spawn_timer > FPS * 2:  # Changed: New client every 2 seconds instead of 1
             generar_cliente()
             spawn_timer = 0
 
