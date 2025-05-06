@@ -48,6 +48,18 @@ for _ in range(4):
 
 
 
+paused = False  # Variable global para pausar el tiempo
+
+def manejar_eventos():
+    global paused
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_p:  # Pausar/reanudar con la tecla P
+                paused = not paused
+                
 # Función para generar clientes aleatorios
 def generar_cliente():
     global cliente_id
@@ -83,22 +95,46 @@ def dibujar_ventanillas():
             text_rect = text.get_rect(center=(square_x + square_size // 2, square_y + square_size // 2))
             screen.blit(text, text_rect)
 
+def dibujar_pantalla_turnos():
+    # Dibujar un rectángulo para la pantalla de turnos
+    panel_width = 200
+    panel_x = WIDTH - panel_width - 10
+    panel_y = 10
+    panel_height = NUM_VENTANILLAS * 30 + 20
+    pygame.draw.rect(screen, WHITE, (panel_x, panel_y, panel_width, panel_height))
+    pygame.draw.rect(screen, BLACK, (panel_x, panel_y, panel_width, panel_height), 2)
+
+    # Dibujar el texto de los turnos dentro del panel
+    text_y = panel_y + 10
+    for idx, v in enumerate(ventanillas):
+        turno_text = f"Ventanilla {idx + 1}: "
+        if v['ocupado'] and v['cliente']:
+            turno_text += f"Cliente {v['cliente'].id}"
+        else:
+            turno_text += "Libre"
+        text = font.render(turno_text, True, BLACK)
+        screen.blit(text, (panel_x + 10, text_y))
+        text_y += 30
+
 def dibujar_fila():
-    # Dibuja la fila de clientes como columna centrada debajo de ventanillas
+    # Dibuja la fila de clientes como una columna vertical en el lado izquierdo
     square_size = 20
-    spacing = 5
-    # Compute total height for the queued clients to center vertically
-    total_height = len(fila) * square_size + (len(fila) - 1) * spacing if fila else 0
-    y = (HEIGHT - total_height) // 2 if total_height else 50 + 100 + 20
-    # Calcular posición x centrada
-    x = WIDTH // 2 - square_size // 2
+    spacing = 10
+    x = 50  # Posición fija en el lado izquierdo
+    y = HEIGHT - (len(fila) * (square_size + spacing)) - 50  # Empieza desde abajo hacia arriba
     for cliente in fila:
         pygame.draw.rect(screen, cliente.color, (x, y, square_size, square_size))
-        # Renderizar el id del cliente (opcional, en centro de cuadrado)
         text = font.render(str(cliente.id), True, BLACK)
-        text_rect = text.get_rect(center=(x + square_size//2, y + square_size//2))
+        text_rect = text.get_rect(center=(x + square_size // 2, y + square_size // 2))
         screen.blit(text, text_rect)
         y += square_size + spacing
+        
+def dibujar_mensaje_pausa():
+    if paused:
+        mensaje = "Simulación en PAUSA. Presiona 'P' para continuar."
+        text = font.render(mensaje, True, RED)
+        text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT - 30))
+        screen.blit(text, text_rect)
 
 # Lógica del agente inteligente
 def asignar_cliente_a_ventanilla():
@@ -136,7 +172,7 @@ def asignar_cliente_a_ventanilla():
         y_cell = 50
         target_pos = (x_cell + (cell_width - square_size) // 2, y_cell + (cell_height - square_size) // 2)
         
-        service_time = random.randint(3, 7) * FPS
+        service_time = random.randint(5, 10) * FPS
         ventanillas[i] = {
             'ocupado': True,
             'cliente': cliente,
@@ -154,7 +190,7 @@ def actualizar_ventanillas():
         if v['ocupado']:
             # Update animation progress first if animation is active
             if v.get('animating', False):
-                v['anim_progress'] += 1 / (0.5 * FPS)
+                v['anim_progress'] += 1 / (1.5 * FPS)
                 if v['anim_progress'] >= 1:
                     v['anim_progress'] = 1
                     v['animating'] = False
@@ -172,31 +208,32 @@ def actualizar_ventanillas():
 # Main loop
 def main():
     spawn_timer = 0
-    assignment_timer = random.randint(FPS, FPS * 3)
+    assignment_timer = random.randint(FPS*3, FPS * 5)
     while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+        manejar_eventos()  # Manejar eventos (incluida la pausa)
 
-        screen.fill(WHITE)
-        spawn_timer += 1
-        assignment_timer -= 1
+        if not paused:  # Solo actualizar si no está en pausa
+            screen.fill(WHITE)
+            spawn_timer += 1
+            assignment_timer -= 1
 
-        if spawn_timer > FPS * 2:  # Changed: New client every 2 seconds instead of 1
-            generar_cliente()
-            spawn_timer = 0
+            if spawn_timer > FPS * 2:  # Nuevo cliente cada 2 segundos
+                generar_cliente()
+                spawn_timer = 0
 
-        if assignment_timer <= 0:
-            asignar_cliente_a_ventanilla()
-            assignment_timer = random.randint(FPS, FPS * 3)  # reset assignment delay
+            if assignment_timer <= 0:
+                asignar_cliente_a_ventanilla()
+                assignment_timer = random.randint(FPS, FPS * 3)
 
-        actualizar_ventanillas()
+            actualizar_ventanillas()
+
         dibujar_fila()
         dibujar_ventanillas()
+        dibujar_pantalla_turnos()  # Dibujar la pantalla de turnos
+        dibujar_mensaje_pausa()  # Dibujar el mensaje de pausa si está pausado
 
         pygame.display.flip()
         clock.tick(FPS)
-
+        
 if __name__ == "__main__":
     main()
